@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Регистрация - AI Writing Lab</title>
+    <link rel="stylesheet" href="css/style.css">
+    <!-- Библиотека Supabase (обязательно) -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body class="auth-page">
+    <div class="auth-container">
+        <h1>Регистрация</h1>
+        <form id="register-form">
+            <input type="email" id="reg-email" placeholder="Email" required>
+            <input type="password" id="reg-password" placeholder="Пароль (мин. 6 символов)" minlength="6" required>
+            <button type="submit">Создать аккаунт</button>
+            <p id="error-message" class="error"></p>
+        </form>
+        <p>Уже есть аккаунт? <a href="login.html">Войти</a></p>
+    </div>
+
+    <script src="js/supabase.js"></script>
+<script>
+    document.getElementById('login-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const email = document.getElementById('login-email').value;
+        const password = document.getElementById('login-password').value;
+        
+        const { data, error } = await window.supabaseClient.auth.signInWithPassword({
+            email: email,
+            password: password
+        });
+
+        if (error) {
+            document.getElementById('error-message').textContent = 'Неверный email или пароль';
+        } else {
+            window.location.href = 'dashboard.html';
+        }
+    });
+</script>
+</body>
+</html>

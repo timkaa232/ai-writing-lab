@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Writing Lab — Тренажёр письма</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+    <div class="dashboard-container">
+        <!-- Шапка -->
+        <div class="header">
+            <h1>AI Writing Lab</h1>
+            <div class="user-info">
+                <span id="user-email">Пользователь</span>
+                <button id="logout-btn" class="btn-outline">Выйти</button>
+            </div>
+        </div>
+
+        <!-- Основной контент -->
+        <div class="main-content">
+            <!-- Левая панель: ввод текста -->
+            <div class="writing-panel">
+                <div class="goal-selector">
+                    <label>Цель тренировки:</label>
+                    <select id="goal-select">
+                        <option value="business">Деловая переписка</option>
+                        <option value="ielts">Эссе IELTS</option>
+                        <option value="social">Пост в соцсетях</option>
+                    </select>
+                    <button id="generate-topic-btn" class="btn-secondary">Сгенерировать тему</button>
+                </div>
+
+                <div id="topic-box" class="topic-box">
+                    <strong>Тема:</strong> <span id="topic-text">Нажмите "Сгенерировать тему"</span>
+                </div>
+
+                <textarea id="essay-input" placeholder="Введите ваш текст на английском языке..." rows="10"></textarea>
+
+                <div class="action-buttons">
+                    <button id="analyze-btn" class="btn-primary">Проверить текст</button>
+                    <button id="sprint-btn" class="btn-secondary">Спринт 5 мин</button>
+                    <span id="word-count">0 слов</span>
+                </div>
+
+                <div id="timer-display" class="timer"></div>
+            </div>
+
+            <!-- Правая панель: результаты проверки -->
+            <div class="feedback-panel">
+                <div class="tabs">
+                    <button class="tab-btn active" data-tab="grammar">Грамматика</button>
+                    <button class="tab-btn" data-tab="vocabulary">Лексика</button>
+                    <button class="tab-btn" data-tab="style">Стиль</button>
+                    <button class="tab-btn" data-tab="structure">Структура</button>
+                </div>
+
+                <div id="feedback-content" class="feedback-content">
+                    <p class="placeholder">Результаты проверки появятся здесь</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- История проверок -->
+        <div class="history-section">
+            <h2>История проверок</h2>
+            <div id="history-list" class="history-list">
+                <p class="placeholder">Загрузка истории...</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/supabase.js"></script>
+    <script>
+        // Конфигурация OpenAI
+        const OPENAI_API_KEY = 'vash kluch';
+
+        // Глобальные переменные
+        let currentTopic = '';
+        let timerInterval = null;
+        let timerSeconds = 0;
+
+        // Проверка авторизации
+        async function checkUser() {
+            const { data: { user } } = await window.supabaseClient.auth.getUser();
+            if (!user) {
+                window.location.href = 'login.html';
+            } else {
+                document.getElementById('user-email').textContent = user.email;
+                loadHistory();
+            }
+        }
+        checkUser();
+
+        // Выход
+        document.getElementById('logout-btn').addEventListener('click', async () => {
+            await window.supabaseClient.auth.signOut();
+            window.location.href = 'login.html';
+        });
+
+        // Подсчёт слов
+        document.getElementById('essay-input').addEventListener('input', (e) => {
+            const words = e.target.value.trim().split(/\s+/).filter(w => w.length > 0);
+            document.getElementById('word-count').textContent = words.length + ' слов';
+        });
+
+        // Генерация темы
+        document.getElementById('generate-topic-btn').addEventListener('click', async () => {
+            const goal = document.getElementById('goal-select').value;
+            const btn = document.getElementById('generate-topic-btn');
+            btn.textContent = 'Генерация...';
+            btn.disabled = true;
+
+            try {
+                const response = await fetch('https://api.openai.com/v1/chat/completions', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${OPENAI_API_KEY}`
+                    },
+                    body: JSON.stringify({
+                        model: 'gpt-4o-mini',
+                        messages: [{
+                            role: 'system',
+                            content: 'Ты — преподаватель английского. Придумай ОДНУ тему для письма на английском языке в зависимости от цели. Ответь только темой, без лишних слов.'
+                        }, {
+                            role: 'user',
+                            content: `Придумай тему для: ${goal === 'business' ? 'делового письма' : goal === 'ielts' ? 'эссе IELTS' : 'поста в соцсетях'}`
+                        }],
+                        max_tokens: 50,
+                        temperature: 0.9
+                    })
+                });
+
+                const data = await response.json();
+                currentTopic = data.choices[0].message.content;
+                document.getElementById('topic-text').textContent = currentTopic;
+            } catch (error) {
+                console.error('Ошибка генерации темы:', error);
+                document.getElementById('topic-text').textContent = 'Ошибка. Попробуйте снова.';
+            }
+
+            btn.textContent = 'Сгенерировать тему';
+            btn.disabled = false;
+        });
+
+        // Проверка текста AI
+        async function analyzeEssay(essay, goal) {
+            const response = await fetch('https://api.openai.com/v1/chat/completions', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${OPENAI_API_KEY}`
+                },
+                body: JSON.stringify({
+                    model: 'gpt-4o-mini',
+                    messages: [{
+                        role: 'system',
+                        content: `Ты — строгий преподаватель английского. Проанализируй текст пользователя.
+                        Верни ТОЛЬКО JSON в формате:
+                        {
+                            "grammar": {"score": 7.5, "errors": [{"text": "ошибка", "correction": "исправление", "explanation": "пояснение"}]},
+                            "vocabulary": {"score": 8.0, "suggestions": [{"original": "слово", "synonym": "синоним"}], "comment": "комментарий"},
+                            "style": {"score": 8.5, "comment": "комментарий по стилю", "tone": "формальный/неформальный"},
+                            "structure": {"score": 7.0, "comment": "комментарий по структуре"}
+                        }
+                        Оценки от 1 до 9.`
+                    }, {
+                        role: 'user',
+                        content: `Цель: ${goal}\nТема: ${currentTopic}\nТекст:\n${essay}`
+                    }],
+                    max_tokens: 800,
+                    temperature: 0.3,
+                    response_format: { type: 'json_object' }
+                })
+            });
+
+            const data = await response.json();
+            return JSON.parse(data.choices[0].message.content);
+        }
+
+        // Отображение результатов
+        function displayFeedback(feedback) {
+            const content = document.getElementById('feedback-content');
+            
+            // Определяем активную вкладку
+            const activeTab = document.querySelector('.tab-btn.active').dataset.tab;
+            renderTabContent(activeTab, feedback);
+        }
+
+        function renderTabContent(tab, feedback) {
+            const content = document.getElementById('feedback-content');
+            let html = '';
+
+            switch(tab) {
+                case 'grammar':
+                    html = `<h3>Грамматика (Оценка: ${feedback.grammar.score}/9)</h3>`;
+                    if (feedback.grammar.errors && feedback.grammar.errors.length > 0) {
+                        html += '<ul class="error-list">';
+                        feedback.grammar.errors.forEach(e => {
+                            html += `<li><span class="error-text">${e.text}</span> → <span class="correction">${e.correction}</span><br><small>${e.explanation}</small></li>`;
+                        });
+                        html += '</ul>';
+                    } else {
+                        html += '<p>Ошибок не найдено!</p>';
+                    }
+                    break;
+                case 'vocabulary':
+                    html = `<h3>Лексика (Оценка: ${feedback.vocabulary.score}/9)</h3>`;
+                    html += `<p>${feedback.vocabulary.comment || ''}</p>`;
+                    if (feedback.vocabulary.suggestions && feedback.vocabulary.suggestions.length > 0) {
+                        html += '<ul>';
+                        feedback.vocabulary.suggestions.forEach(s => {
+                            html += `<li><strong>${s.original}</strong> → ${s.synonym}</li>`;
+                        });
+                        html += '</ul>';
+                    }
+                    break;
+                case 'style':
+                    html = `<h3>Стиль (Оценка: ${feedback.style.score}/9)</h3>`;
+                    html += `<p>Тон: ${feedback.style.tone || 'нейтральный'}</p>`;
+                    html += `<p>${feedback.style.comment || ''}</p>`;
+                    break;
+                case 'structure':
+                    html = `<h3>Структура (Оценка: ${feedback.structure.score}/9)</h3>`;
+                    html += `<p>${feedback.structure.comment || ''}</p>`;
+                    break;
+            }
+
+            content.innerHTML = html;
+        }
+
+        // Переключение вкладок
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                
+                const feedback = JSON.parse(localStorage.getItem('lastFeedback') || '{}');
+                if (Object.keys(feedback).length > 0) {
+                    renderTabContent(btn.dataset.tab, feedback);
+                }
+            });
+        });
+
+        // Анализ текста
+        document.getElementById('analyze-btn').addEventListener('click', async () => {
+            const essay = document.getElementById('essay-input').value.trim();
+            const goal = document.getElementById('goal-select').value;
+            
+            if (!essay) {
+                alert('Введите текст для проверки');
+                return;
+            }
+
+            const btn = document.getElementById('analyze-btn');
+            btn.textContent = 'Проверка...';
+            btn.disabled = true;
+
+            try {
+                const feedback = await analyzeEssay(essay, goal);
+                localStorage.setItem('lastFeedback', JSON.stringify(feedback));
+                displayFeedback(feedback);
+
+                // Сохраняем в Supabase
+                const { data: { user } } = await window.supabaseClient.auth.getUser();
+                await window.supabaseClient.from('essays').insert({
+                    user_id: user.id,
+                    goal: goal,
+                    topic: currentTopic,
+                    content: essay,
+                    feedback: feedback,
+                    word_count: essay.split(/\s+/).filter(w => w.length > 0).length
+                });
+
+                loadHistory();
+            } catch (error) {
+                console.error('Ошибка анализа:', error);
+                document.getElementById('feedback-content').innerHTML = '<p class="error">Ошибка проверки. Попробуйте снова.</p>';
+            }
+
+            btn.textContent = 'Проверить текст';
+            btn.disabled = false;
+        });
+
+        // Спринт 5 минут
+        document.getElementById('sprint-btn').addEventListener('click', () => {
+            const textarea = document.getElementById('essay-input');
+            const btn = document.getElementById('sprint-btn');
+            
+            if (timerInterval) {
+                clearInterval(timerInterval);
+                timerInterval = null;
+                btn.textContent = 'Спринт 5 мин';
+                document.getElementById('timer-display').textContent = '';
+                textarea.disabled = false;
+                return;
+            }
+
+            timerSeconds = 300; // 5 минут
+            textarea.disabled = false;
+            textarea.focus();
+            
+            timerInterval = setInterval(() => {
+                timerSeconds--;
+                const mins = Math.floor(timerSeconds / 60);
+                const secs = timerSeconds % 60;
+                document.getElementById('timer-display').textContent = `${mins}:${secs.toString().padStart(2, '0')}`;
+                
+                if (timerSeconds <= 0) {
+                    clearInterval(timerInterval);
+                    timerInterval = null;
+                    textarea.disabled = true;
+                    btn.textContent = 'Спринт 5 мин';
+                    document.getElementById('timer-display').textContent = 'Время вышло!';
+                    document.getElementById('analyze-btn').click();
+                }
+            }, 1000);
+            
+            btn.textContent = 'Остановить спринт';
+        });
+
+        // Загрузка истории
+        async function loadHistory() {
+            const { data: { user } } = await window.supabaseClient.auth.getUser();
+            if (!user) return;
+
+            const { data, error } = await window.supabaseClient
+                .from('essays')
+                .select('*')
+                .eq('user_id', user.id)
+                .order('created_at', { ascending: false })
+                .limit(10);
+
+            const historyDiv = document.getElementById('history-list');
+            
+            if (error || !data || data.length === 0) {
+                historyDiv.innerHTML = '<p class="placeholder">История пуста. Начните писать!</p>';
+                return;
+            }
+
+            let html = '<table class="history-table"><tr><th>Дата</th><th>Цель</th><th>Тема</th><th>Слов</th></tr>';
+            data.forEach(item => {
+                const date = new Date(item.created_at).toLocaleString('ru-RU');
+                html += `<tr>
+                    <td>${date}</td>
+                    <td>${item.goal}</td>
+                    <td>${item.topic.substring(0, 30)}...</td>
+                    <td>${item.word_count}</td>
+                </tr>`;
+            });
+            html += '</table>';
+            historyDiv.innerHTML = html;
+        }
+    </script>
+</body>
+</html>
